@@ -1,7 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 
 # A filesystem-based queue processing system.
 # Copyright 2016 Jason Pepas, released under the terms of the MIT license.
+# See https://github.com/pepaslabs/dirqueue
 
 # How does this work?
 # - Drag a file into the "queue/in" directory.
@@ -14,7 +15,11 @@
 # watchdog to get wedged.  If that happens, kill run.py, drag the files from "queue/in" to some other
 # location, and then drag them back to "queue/in" (I know, lame...).
 
+import errno
+import os
+import subprocess
 import sys
+import time
 
 # exit status codes:
 exit_status_unknown_error = 1
@@ -29,18 +34,25 @@ except ImportError:
     sys.stderr.write("Hint: try 'sudo -H pip install watchdog'\n")
     sys.exit(exit_status_missing_module)
 
-import errno
-import os
+
+def log(msg):
+    sys.stdout.write("Log: %s\n" % msg)
+
+
+def log_error(msg):
+    sys.stderr.write("Error: %s\n" % msg)
+
 
 def mkdir_p(path):
     # thanks to http://stackoverflow.com/a/600612
     try:
         os.makedirs(path)
-    except OSError as exc:  # Python >2.5
+    except OSError as exc:
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             pass
         else:
             raise
+
 
 def setup_dir_structure():
     mkdir_p('../queue/in')
@@ -48,10 +60,6 @@ def setup_dir_structure():
     mkdir_p('../queue/failed/')
     mkdir_p('../queue/done/')
 
-import subprocess
-
-def run_or_die(command):
-    subprocess.check_call(command, shell=True)    
 
 def move_job_from_to(job_filename, from_queue, to_queue):
     src_queuepath = "../queue/%s/" % from_queue
@@ -60,21 +68,19 @@ def move_job_from_to(job_filename, from_queue, to_queue):
     dest_filepath = os.path.join(dest_queuepath, job_filename)
     os.rename(src_filepath, dest_filepath)
 
+
 def flush_active_to_failed():
     # move any jobs in "queue/active" back to "queue/failed"
-    for filename in [f for f in os.listdir("../queue/active/") if os.path.isfile(os.path.join("../queue/active", f))]:
+    for filename in [f for f in os.listdir("../queue/active/")
+                     if os.path.isfile(os.path.join("../queue/active", f))]:
         move_job_from_to(filename, "active", "failed")
 
-def log(msg):
-    sys.stdout.write("Log: %s\n" % msg)
-
-def log_error(msg):
-    sys.stderr.write("Error: %s\n" % msg)
 
 def run_job_processor(filename):
     filepath = os.path.join("../queue/active/", filename)
     command = ["./job_processor", filepath]
     subprocess.check_call(command)
+
 
 def handle_new_job(filename):
     log("moving job to active: %s" % filename)
@@ -89,6 +95,7 @@ def handle_new_job(filename):
     log("moving job to done: %s" % filename)
     move_job_from_to(filename, "active", "done")
 
+
 class NewFileHandler(watchdog.events.FileSystemEventHandler):
     def on_created(self, event):
         if type(event) is not watchdog.events.FileCreatedEvent:
@@ -96,7 +103,6 @@ class NewFileHandler(watchdog.events.FileSystemEventHandler):
         filename = os.path.basename(event.src_path)
         handle_new_job(filename)
 
-import time
 
 def run_queue():
     observer = watchdog.observers.Observer()
@@ -112,6 +118,7 @@ def run_queue():
         log("stopping...")
         observer.stop()
     observer.join()
+
 
 if __name__ == "__main__":
     setup_dir_structure()
